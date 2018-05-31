@@ -30,10 +30,15 @@ import org.apache.lucene.index.*;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefHash;
 import org.apache.lucene.util.BytesRefIterator;
+
+import com.google.common.collect.Multimap;
+import com.google.common.collect.TreeMultimap;
+
 import uk.co.flax.luwak.Presearcher;
 import uk.co.flax.luwak.QueryTermFilter;
 import uk.co.flax.luwak.analysis.BytesRefFilteredTokenFilter;
@@ -120,21 +125,23 @@ public class TermFilteredPresearcher extends Presearcher {
     protected DocumentQueryBuilder getQueryBuilder() {
         return new DocumentQueryBuilder() {
 
-            List<Term> terms = new ArrayList<>();
+            Multimap<String, BytesRef> terms = TreeMultimap.create();
 
             @Override
             public void addTerm(String field, BytesRef term) throws IOException {
-                terms.add(new Term(field, term));
+                terms.put(field, term);
             }
 
             @Override
             public Query build() {
                 if (terms.size() == 1) {
-                    return new TermQuery(terms.iterator().next());
+                    String field = terms.keys().iterator().next();
+                    BytesRef val  = terms.values().iterator().next();
+                    return new TermQuery(new Term(field, val));
                 } else {
                     BooleanQuery.Builder builder = new BooleanQuery.Builder();
-                    for (Term term : terms) {
-                        builder.add(new TermQuery(term), BooleanClause.Occur.SHOULD);
+                    for (String field : terms.keySet()) {
+                        builder.add(new TermInSetQuery(field, terms.get(field)), BooleanClause.Occur.SHOULD);
                     }
                     return builder.build();
                 }

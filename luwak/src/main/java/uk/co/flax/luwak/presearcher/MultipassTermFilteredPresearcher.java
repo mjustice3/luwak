@@ -12,9 +12,13 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.search.BooleanClause;
 import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefHash;
+
+import com.google.common.collect.Multimap;
+import com.google.common.collect.TreeMultimap;
 
 import uk.co.flax.luwak.analysis.TermsEnumTokenStream;
 import uk.co.flax.luwak.termextractor.querytree.QueryTree;
@@ -119,19 +123,19 @@ public class MultipassTermFilteredPresearcher extends TermFilteredPresearcher {
     private class MultipassDocumentQueryBuilder implements DocumentQueryBuilder {
 
         BooleanQuery.Builder[] queries = new BooleanQuery.Builder[passes];
-        List<List<Term>> terms = new ArrayList<List<Term>>(passes);
+        List<Multimap<String, BytesRef>> terms = new ArrayList<Multimap<String,BytesRef>>(passes);
 
         public MultipassDocumentQueryBuilder() {
             for (int i = 0; i < queries.length; i++) {
                 queries[i] = new BooleanQuery.Builder();
-                terms.add(i, new ArrayList<Term>());
+                terms.add(i, TreeMultimap.create());
             }
         }
 
         @Override
         public void addTerm(String field, BytesRef term) throws IOException {
             for (int i = 0; i < passes; i++) {
-                terms.get(i).add(new Term(field(field, i), term));
+                terms.get(i).put(field(field,i), term);
             }
         }
 
@@ -140,11 +144,13 @@ public class MultipassTermFilteredPresearcher extends TermFilteredPresearcher {
             BooleanQuery.Builder parent = new BooleanQuery.Builder();
             for (int i = 0; i < passes; i++) {
                 if (terms.get(i).size() == 1) {
-                    parent.add(new TermQuery(terms.get(i).iterator().next()), BooleanClause.Occur.MUST);
+                    String field = terms.get(i).keys().iterator().next();
+                    BytesRef val = terms.get(i).values().iterator().next();
+                    parent.add(new TermQuery(new Term(field, val)), BooleanClause.Occur.MUST);
                 } else {
                     BooleanQuery.Builder bq = new BooleanQuery.Builder();
-                    for (Term term : terms.get(i)) {
-                        bq.add(new TermQuery(term), BooleanClause.Occur.SHOULD);
+                    for (String field : terms.get(i).keySet()) {
+                        bq.add(new TermInSetQuery(field, terms.get(i).get(field)), BooleanClause.Occur.SHOULD);
                     }
                     parent.add(bq.build(), BooleanClause.Occur.MUST);
                 }
